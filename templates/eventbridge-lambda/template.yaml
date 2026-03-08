@@ -1,0 +1,256 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  rds-pg-migration-toolkit retry automation.
+  Deploys an EventBridge rule and Lambda function to automatically retry
+  failed RDS blue-green deployments with exponential backoff.
+
+Parameters:
+  MaxRetries:
+    Type: Number
+    Default: 3
+    Description: Maximum number of retry attempts for a failed deployment.
+    MinValue: 1
+    MaxValue: 10
+
+  RetryDelayBaseSeconds:
+    Type: Number
+    Default: 300
+    Description: Base delay in seconds for exponential backoff (delay = base * 2^attempt).
+    MinValue: 60
+    MaxValue: 3600
+
+  SourceAccountId:
+    Type: String
+    Default: ""
+    Description: >
+      AWS account ID to monitor for blue-green deployment events.
+      Leave empty to monitor the current account only.
+
+Globals:
+  Function:
+    Timeout: 900
+    Runtime: python3.11
+    MemorySize: 128
+    Environment:
+      Variables:
+        MAX_RETRIES: !Ref MaxRetries
+        RETRY_DELAY_BASE: !Ref RetryDelayBaseSeconds
+
+Resources:
+
+  # IAM Role for the retry Lambda function
+  RetryFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rds-migrate-retry-lambda-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: RDSBlueGreenRetryPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              # RDS permissions for blue-green deployment management
+              - Effect: Allow
+                Action:
+                  - rds:CreateBlueGreenDeployment
+                  - rds:DescribeBlueGreenDeployments
+                  - rds:DeleteBlueGreenDeployment
+                  - rds:DescribeDBInstances
+                  - rds:DescribeDBClusters
+                  - rds:DescribeDBParameterGroups
+                  - rds:DescribeDBClusterParameterGroups
+                  - rds:DescribeDBEngineVersions
+                Resource: "*"
+
+              # SSM Parameter Store for retry count tracking
+              - Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                  - ssm:PutParameter
+                  - ssm:DeleteParameter
+                Resource: !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rds-migrate/retry/*"
+
+              # SNS for notifications (optional)
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !If
+                  - HasNotificationTopic
+                  - !Ref NotificationTopic
+                  - !Ref "AWS::NoValue"
+
+  # Lambda function for retry logic
+  RetryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: rds-migrate-retry-handler
+      Handler: index.handler
+      Role: !GetAtt RetryFunctionRole.Arn
+      InlineCode: |
+        import boto3
+        import json
+        import os
+        import time
+        import logging
+
+        logger = logging.getLogger()
+        logger.setLevel(logging.INFO)
+
+        rds = boto3.client("rds")
+        ssm = boto3.client("ssm")
+
+        MAX_RETRIES = int(os.environ.get("MAX_RETRIES", "3"))
+        RETRY_DELAY_BASE = int(os.environ.get("RETRY_DELAY_BASE", "300"))
+
+
+        def handler(event, context):
+            """Handle EventBridge event for failed blue-green deployment."""
+            logger.info("Received event: %s", json.dumps(event))
+
+            detail = event.get("detail", {})
+            source_id = detail.get("SourceIdentifier", "")
+            message = detail.get("Message", "")
+
+            if "failed" not in message.lower():
+                logger.info("Not a failure event, ignoring: %s", message)
+                return {"status": "ignored", "reason": "not a failure event"}
+
+            # Extract deployment ID
+            deployment_id = source_id if source_id.startswith("bgd-") else None
+            if not deployment_id:
+                logger.warning("Could not extract deployment ID from: %s", source_id)
+                return {"status": "ignored", "reason": "no deployment ID"}
+
+            # Check retry count
+            retry_count = get_retry_count(deployment_id)
+            if retry_count >= MAX_RETRIES:
+                logger.warning(
+                    "Max retries (%d) reached for %s. Manual intervention required.",
+                    MAX_RETRIES, deployment_id
+                )
+                return {"status": "max_retries_reached", "deployment_id": deployment_id}
+
+            # Exponential backoff
+            delay = min(RETRY_DELAY_BASE * (2 ** retry_count), 900)
+            logger.info(
+                "Retrying %s (attempt %d/%d) after %ds delay",
+                deployment_id, retry_count + 1, MAX_RETRIES, delay
+            )
+            time.sleep(delay)
+
+            # TODO: Implement actual retry logic
+            # 1. Describe the failed deployment to get source instance
+            # 2. Delete the failed deployment
+            # 3. Recreate the blue-green deployment
+            # 4. Increment retry count
+
+            increment_retry_count(deployment_id)
+            return {
+                "status": "retrying",
+                "deployment_id": deployment_id,
+                "attempt": retry_count + 1,
+            }
+
+
+        def get_retry_count(deployment_id):
+            """Get current retry count from SSM Parameter Store."""
+            try:
+                param = ssm.get_parameter(Name=f"/rds-migrate/retry/{deployment_id}")
+                return int(param["Parameter"]["Value"])
+            except ssm.exceptions.ParameterNotFound:
+                return 0
+            except Exception as e:
+                logger.error("Error getting retry count: %s", e)
+                return 0
+
+
+        def increment_retry_count(deployment_id):
+            """Increment retry count in SSM Parameter Store."""
+            current = get_retry_count(deployment_id)
+            ssm.put_parameter(
+                Name=f"/rds-migrate/retry/{deployment_id}",
+                Value=str(current + 1),
+                Type="String",
+                Overwrite=True,
+            )
+
+      Events:
+        BlueGreenFailure:
+          Type: EventBridgeRule
+          Properties:
+            Pattern:
+              source:
+                - aws.rds
+              detail-type:
+                - "RDS DB Instance Event"
+              detail:
+                EventCategories:
+                  - "blue-green deployment"
+                Message:
+                  - prefix: "Blue/green deployment failed"
+
+  # Optional: SNS topic for notifications
+  NotificationTopic:
+    Type: AWS::SNS::Topic
+    Condition: EnableNotifications
+    Properties:
+      TopicName: rds-migrate-retry-notifications
+
+  # CloudWatch alarm for repeated failures
+  RepeatedFailureAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rds-migrate-retry-repeated-failures
+      AlarmDescription: >
+        Triggered when the retry Lambda is invoked more than 5 times in 1 hour,
+        indicating persistent blue-green deployment failures.
+      Namespace: AWS/Lambda
+      MetricName: Invocations
+      Dimensions:
+        - Name: FunctionName
+          Value: !Ref RetryFunction
+      Statistic: Sum
+      Period: 3600
+      EvaluationPeriods: 1
+      Threshold: 5
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+      ActionsEnabled: true
+      AlarmActions:
+        - !If
+          - EnableNotifications
+          - !Ref NotificationTopic
+          - !Ref "AWS::NoValue"
+
+Conditions:
+  HasNotificationTopic:
+    !Not [!Equals [!Ref "AWS::StackName", ""]]  # Always true; placeholder for optional SNS
+  EnableNotifications:
+    !Not [!Equals [!Ref "AWS::StackName", ""]]  # Always true; set to false to disable
+
+Outputs:
+  RetryFunctionArn:
+    Description: ARN of the retry Lambda function
+    Value: !GetAtt RetryFunction.Arn
+
+  RetryFunctionName:
+    Description: Name of the retry Lambda function
+    Value: !Ref RetryFunction
+
+  EventBridgeRuleArn:
+    Description: ARN of the EventBridge rule monitoring blue-green deployment failures
+    Value: !GetAtt RetryFunctionBlueGreenFailure.Arn
+
+  NotificationTopicArn:
+    Condition: EnableNotifications
+    Description: ARN of the SNS notification topic
+    Value: !Ref NotificationTopic

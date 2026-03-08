@@ -1,0 +1,83 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rds-pg-migration-toolkit"
+version = "0.1.0"
+description = "CLI toolkit for safe, zero-downtime PostgreSQL major version upgrades on AWS RDS/Aurora using blue-green deployments"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+authors = [
+    {name = "June Gu", email = "junegu@example.com"},
+]
+keywords = [
+    "aws",
+    "rds",
+    "aurora",
+    "postgresql",
+    "migration",
+    "blue-green",
+    "database",
+    "sre",
+    "devops",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Database",
+    "Topic :: System :: Systems Administration",
+    "Typing :: Typed",
+]
+dependencies = [
+    "boto3>=1.28.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-mock>=3.11.0",
+    "moto[rds]>=4.2.0",
+    "flake8>=6.1.0",
+    "mypy>=1.5.0",
+    "boto3-stubs[rds]>=1.28.0",
+]
+
+[project.scripts]
+rds-migrate = "rds_migrate.cli:cli"
+
+[project.urls]
+Homepage = "https://github.com/junegu/rds-pg-migration-toolkit"
+Repository = "https://github.com/junegu/rds-pg-migration-toolkit"
+Issues = "https://github.com/junegu/rds-pg-migration-toolkit/issues"
+Documentation = "https://github.com/junegu/rds-pg-migration-toolkit/tree/main/docs"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests that require AWS credentials (deselect with '-m \"not integration\"')",
+]
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.flake8]
+max-line-length = 120
+exclude = [".git", "__pycache__", "venv", "build", "dist"]
