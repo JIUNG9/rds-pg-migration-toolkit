@@ -187,13 +187,37 @@ def resolve_engine_version(
     Raises:
         ValueError: If no matching engine version is found.
     """
-    # TODO: Implement:
-    # 1. Call describe_db_engine_versions(Engine=engine)
-    # 2. Filter for versions starting with target_major_version
-    # 3. Sort by version number, return the latest
-    # 4. Raise ValueError if none found
-    logger.info("Resolving engine version for PG %s", target_major_version)
-    return f"{target_major_version}.0"  # Placeholder
+    logger.info("Resolving engine version for %s %s", engine, target_major_version)
+
+    versions: list[str] = []
+    paginator_token: str | None = None
+    while True:
+        kwargs: dict[str, Any] = {"Engine": engine}
+        if paginator_token:
+            kwargs["Marker"] = paginator_token
+        resp = rds_client.describe_db_engine_versions(**kwargs)
+        for v in resp.get("DBEngineVersions", []):
+            ver = v["EngineVersion"]
+            if ver.startswith(f"{target_major_version}."):
+                versions.append(ver)
+        paginator_token = resp.get("Marker")
+        if not paginator_token:
+            break
+
+    if not versions:
+        raise ValueError(
+            f"No engine versions found for {engine} {target_major_version}.x "
+            f"in the current region."
+        )
+
+    # Sort by minor version numerically (e.g., 16.1, 16.2, 16.12)
+    def _sort_key(v: str) -> tuple[int, ...]:
+        return tuple(int(p) for p in v.split("."))
+
+    versions.sort(key=_sort_key)
+    latest = versions[-1]
+    logger.info("Resolved %s %s -> %s", engine, target_major_version, latest)
+    return latest
 
 
 def get_instance_arn(
@@ -214,11 +238,36 @@ def get_instance_arn(
     Raises:
         ValueError: If the instance/cluster is not found.
     """
-    # TODO: Implement:
-    # Try describe_db_instances -> DBInstanceArn
-    # Fall back to describe_db_clusters -> DBClusterArn
     logger.info("Resolving ARN for %s", instance_id)
-    return f"arn:aws:rds:us-east-1:123456789012:db:{instance_id}"  # Placeholder
+
+    # Try standalone RDS instance first
+    try:
+        resp = rds_client.describe_db_instances(DBInstanceIdentifier=instance_id)
+        arn = resp["DBInstances"][0]["DBInstanceArn"]
+        logger.debug("Resolved %s as RDS instance: %s", instance_id, arn)
+        return arn
+    except (KeyError, IndexError):
+        pass
+    except Exception as exc:
+        if "DBInstanceNotFound" not in str(exc):
+            raise
+
+    # Fall back to Aurora cluster
+    try:
+        resp = rds_client.describe_db_clusters(DBClusterIdentifier=instance_id)
+        arn = resp["DBClusters"][0]["DBClusterArn"]
+        logger.debug("Resolved %s as Aurora cluster: %s", instance_id, arn)
+        return arn
+    except (KeyError, IndexError):
+        pass
+    except Exception as exc:
+        if "DBClusterNotFound" not in str(exc):
+            raise
+
+    raise ValueError(
+        f"Instance or cluster '{instance_id}' not found. "
+        f"Verify the identifier and region."
+    )
 
 
 def validate_upgrade_path(source_major: int, target_major: int) -> bool:
