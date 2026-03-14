@@ -96,11 +96,31 @@ class TestCheckCurrentVersion:
         assert isinstance(result, CheckResult)
         assert result.name == "PG Version Check"
 
-    # TODO: Add tests once implementation is complete:
-    # - test_valid_upgrade_path_passes
-    # - test_invalid_upgrade_path_fails (e.g., PG 16 -> PG 13)
-    # - test_same_version_fails
-    # - test_aurora_cluster_version_check
+    def test_valid_upgrade_path_passes(self, mock_rds_client: MagicMock) -> None:
+        """PG 13 -> 16 should pass (mock returns 13.12)."""
+        result = check_current_version(mock_rds_client, "test-instance", "16")
+        assert result.status == CheckStatus.PASS
+        assert "13 -> 16" in result.message
+
+    def test_invalid_upgrade_path_fails(self, mock_rds_client: MagicMock) -> None:
+        """Downgrade PG 13 -> 11 should fail."""
+        result = check_current_version(mock_rds_client, "test-instance", "11")
+        assert result.status == CheckStatus.FAIL
+        assert "not supported" in result.message
+
+    def test_same_version_passes_already_on_target(self, mock_rds_client: MagicMock) -> None:
+        """Same version should pass with 'already on target' message."""
+        result = check_current_version(mock_rds_client, "test-instance", "13")
+        assert result.status == CheckStatus.PASS
+        assert "Already on target" in result.message
+
+    def test_aurora_cluster_version_check(self, mock_rds_client: MagicMock) -> None:
+        """Should fall back to describe_db_clusters for Aurora."""
+        # Make describe_db_instances fail
+        mock_rds_client.describe_db_instances.side_effect = Exception("DBInstanceNotFound")
+        result = check_current_version(mock_rds_client, "test-aurora-cluster", "16")
+        assert result.status == CheckStatus.PASS
+        assert "13 -> 16" in result.message
 
 
 class TestCheckParameterCompatibility:
@@ -112,10 +132,27 @@ class TestCheckParameterCompatibility:
         assert isinstance(result, CheckResult)
         assert result.name == "Parameter Compatibility"
 
-    # TODO: Add tests once implementation is complete:
-    # - test_incompatible_params_detected (use mock_rds_client_with_incompatible_params)
-    # - test_compatible_params_pass
-    # - test_default_params_not_flagged (only user-modified params should be checked)
+    def test_compatible_params_pass(self, mock_rds_client: MagicMock) -> None:
+        """Parameters without removed entries should pass."""
+        result = check_parameter_compatibility(mock_rds_client, "test-instance", "16")
+        assert result.status == CheckStatus.PASS
+        assert "compatible" in result.message.lower()
+
+    def test_incompatible_params_detected(
+        self, mock_rds_client_with_incompatible_params: MagicMock
+    ) -> None:
+        """max_logical_replication_workers should trigger FAIL for PG 16."""
+        result = check_parameter_compatibility(
+            mock_rds_client_with_incompatible_params, "test-instance", "16"
+        )
+        assert result.status == CheckStatus.FAIL
+        assert "max_logical_replication_workers" in result.message
+        assert "incompatible_params" in result.details
+
+    def test_no_removals_for_unsupported_version_pair(self, mock_rds_client: MagicMock) -> None:
+        """Version pair with no known removals should pass."""
+        result = check_parameter_compatibility(mock_rds_client, "test-instance", "14")
+        assert result.status == CheckStatus.PASS
 
 
 class TestCheckStorageSpace:
@@ -127,10 +164,21 @@ class TestCheckStorageSpace:
         assert isinstance(result, CheckResult)
         assert result.name == "Storage Space"
 
-    # TODO: Add tests once implementation is complete:
-    # - test_low_storage_warns
-    # - test_critical_storage_fails
-    # - test_ample_storage_passes
+    def test_aurora_cluster_always_passes(self, mock_rds_client: MagicMock) -> None:
+        """Aurora clusters use auto-scaling storage — always pass."""
+        mock_rds_client.describe_db_instances.return_value = {
+            "DBInstances": [{
+                "DBInstanceIdentifier": "test-aurora",
+                "Engine": "aurora-postgresql",
+                "EngineVersion": "13.12",
+                "AllocatedStorage": 0,
+                "DBInstanceStatus": "available",
+                "DBParameterGroups": [{"DBParameterGroupName": "default", "ParameterApplyStatus": "in-sync"}],
+            }]
+        }
+        result = check_storage_space(mock_rds_client, "test-aurora")
+        assert result.status == CheckStatus.PASS
+        assert "auto-scaling" in result.message
 
 
 class TestCheckBlueGreenSupport:
@@ -142,10 +190,62 @@ class TestCheckBlueGreenSupport:
         assert isinstance(result, CheckResult)
         assert result.name == "Blue-Green Support"
 
-    # TODO: Add tests once implementation is complete:
-    # - test_supported_instance_passes
-    # - test_unsupported_engine_fails
-    # - test_cross_region_replica_fails
+    def test_supported_instance_passes(self, mock_rds_client: MagicMock) -> None:
+        """PG 13, available, no cross-region replicas should pass."""
+        result = check_blue_green_support(mock_rds_client, "test-instance")
+        assert result.status == CheckStatus.PASS
+        assert "eligible" in result.message
+
+    def test_unsupported_engine_fails(self, mock_rds_client: MagicMock) -> None:
+        """MySQL engine should fail."""
+        mock_rds_client.describe_db_instances.return_value = {
+            "DBInstances": [{
+                "DBInstanceIdentifier": "mysql-db",
+                "Engine": "mysql",
+                "EngineVersion": "8.0.35",
+                "DBInstanceStatus": "available",
+                "DBInstanceArn": "arn:aws:rds:us-east-1:123456789012:db:mysql-db",
+                "AllocatedStorage": 100,
+                "DBParameterGroups": [{"DBParameterGroupName": "default", "ParameterApplyStatus": "in-sync"}],
+            }]
+        }
+        result = check_blue_green_support(mock_rds_client, "mysql-db")
+        assert result.status == CheckStatus.FAIL
+        assert "mysql" in result.message.lower()
+
+    def test_old_version_fails(self, mock_rds_client: MagicMock) -> None:
+        """PG 11 should fail (blue-green requires >= 12)."""
+        mock_rds_client.describe_db_instances.return_value = {
+            "DBInstances": [{
+                "DBInstanceIdentifier": "old-pg",
+                "Engine": "postgres",
+                "EngineVersion": "11.22",
+                "DBInstanceStatus": "available",
+                "DBInstanceArn": "arn:aws:rds:us-east-1:123456789012:db:old-pg",
+                "AllocatedStorage": 100,
+                "DBParameterGroups": [{"DBParameterGroupName": "default", "ParameterApplyStatus": "in-sync"}],
+            }]
+        }
+        result = check_blue_green_support(mock_rds_client, "old-pg")
+        assert result.status == CheckStatus.FAIL
+        assert ">= 12" in result.message
+
+    def test_unavailable_instance_fails(self, mock_rds_client: MagicMock) -> None:
+        """Instance not in 'available' status should fail."""
+        mock_rds_client.describe_db_instances.return_value = {
+            "DBInstances": [{
+                "DBInstanceIdentifier": "modifying-db",
+                "Engine": "postgres",
+                "EngineVersion": "13.12",
+                "DBInstanceStatus": "modifying",
+                "DBInstanceArn": "arn:aws:rds:us-east-1:123456789012:db:modifying-db",
+                "AllocatedStorage": 100,
+                "DBParameterGroups": [{"DBParameterGroupName": "default", "ParameterApplyStatus": "in-sync"}],
+            }]
+        }
+        result = check_blue_green_support(mock_rds_client, "modifying-db")
+        assert result.status == CheckStatus.FAIL
+        assert "modifying" in result.message
 
 
 class TestRunPreflightChecks:
