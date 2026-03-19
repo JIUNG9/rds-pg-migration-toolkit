@@ -1,0 +1,2 @@
+[console_scripts]
+rds-migrate = rds_migrate.cli:cli
