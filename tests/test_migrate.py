@@ -7,14 +7,16 @@ and rollback functionality.
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from rds_migrate.migrate import (
     DeploymentResult,
     DeploymentStatus,
+    _create_target_parameter_group,
     _is_aurora_cluster,
+    _poll_deployment_status,
     create_blue_green_deployment,
     rollback_deployment,
 )
@@ -80,35 +82,117 @@ class TestIsAuroraCluster:
         result = _is_aurora_cluster(mock_rds_client, "test-instance")
         assert isinstance(result, bool)
 
-    # TODO: Add tests once implementation is complete:
-    # - test_aurora_cluster_detected
-    # - test_standalone_rds_detected
-    # - test_nonexistent_instance_raises
+    def test_aurora_cluster_detected(self, mock_rds_client: MagicMock) -> None:
+        """Should return True when describe_db_clusters returns results."""
+        result = _is_aurora_cluster(mock_rds_client, "test-aurora-cluster")
+        assert result is True
+
+    def test_standalone_rds_detected(self, mock_rds_client: MagicMock) -> None:
+        """Should return False when describe_db_clusters finds nothing."""
+        mock_rds_client.describe_db_clusters.side_effect = Exception("DBClusterNotFound")
+        result = _is_aurora_cluster(mock_rds_client, "test-instance")
+        assert result is False
+
+
+class TestCreateTargetParameterGroup:
+    """Tests for the parameter group creation helper."""
+
+    def test_filters_incompatible_params(self, mock_rds_client: MagicMock) -> None:
+        """Should filter max_logical_replication_workers for PG 13 -> 16."""
+        mock_rds_client.describe_db_parameters.return_value = {
+            "Parameters": [
+                {"ParameterName": "max_connections", "ParameterValue": "200", "ApplyMethod": "pending-reboot"},
+                {"ParameterName": "max_logical_replication_workers", "ParameterValue": "4", "ApplyMethod": "pending-reboot"},
+            ]
+        }
+        name = _create_target_parameter_group(
+            mock_rds_client, "source-pg13", 13, 16, "bgd-test", is_cluster=False,
+        )
+        assert name == "bgd-test-pg16"
+        # Verify only max_connections was copied (incompatible param filtered)
+        call_args = mock_rds_client.modify_db_parameter_group.call_args
+        copied_params = call_args.kwargs["Parameters"]
+        param_names = [p["ParameterName"] for p in copied_params]
+        assert "max_connections" in param_names
+        assert "max_logical_replication_workers" not in param_names
 
 
 class TestCreateBlueGreenDeployment:
     """Tests for the create_blue_green_deployment function."""
 
-    def test_returns_deployment_result(self, mock_rds_client: MagicMock) -> None:
-        """Should return a DeploymentResult object."""
-        result = create_blue_green_deployment(
-            rds_client=mock_rds_client,
-            instance_id="test-instance",
-            target_version="16",
-            wait=False,
-            switchover=False,
-        )
-        assert isinstance(result, DeploymentResult)
-        assert result.source_instance == "test-instance"
-        assert result.target_version == "16"
+    def test_detects_aurora_and_delegates(self, mock_rds_client: MagicMock) -> None:
+        """Aurora cluster should use cluster-level deployment."""
+        # Setup: mock the blue-green response
+        mock_rds_client.create_blue_green_deployment.return_value = {
+            "BlueGreenDeployment": {
+                "BlueGreenDeploymentIdentifier": "bgd-aurora-123",
+                "Status": "PROVISIONING",
+            }
+        }
+        mock_rds_client.describe_db_engine_versions.return_value = {
+            "DBEngineVersions": [{"EngineVersion": "16.4"}]
+        }
+        mock_rds_client.describe_db_cluster_parameters.return_value = {"Parameters": []}
 
-    # TODO: Add tests once implementation is complete:
-    # - test_rds_deployment_created
-    # - test_aurora_deployment_created
-    # - test_wait_polls_until_available
-    # - test_switchover_performed_when_ready
-    # - test_timeout_raises_error
-    # - test_invalid_target_version_rejected
+        result = create_blue_green_deployment(
+            mock_rds_client, "test-aurora-cluster", "16", wait=False, switchover=False,
+        )
+        assert result.deployment_id == "bgd-aurora-123"
+        assert result.source_instance == "test-aurora-cluster"
+
+    def test_rds_deployment_created(self, mock_rds_client: MagicMock) -> None:
+        """Standalone RDS should use instance-level deployment."""
+        mock_rds_client.describe_db_clusters.side_effect = Exception("DBClusterNotFound")
+        mock_rds_client.create_blue_green_deployment.return_value = {
+            "BlueGreenDeployment": {
+                "BlueGreenDeploymentIdentifier": "bgd-rds-456",
+                "Status": "PROVISIONING",
+            }
+        }
+        mock_rds_client.describe_db_engine_versions.return_value = {
+            "DBEngineVersions": [{"EngineVersion": "16.4"}]
+        }
+
+        result = create_blue_green_deployment(
+            mock_rds_client, "test-instance", "16", wait=False, switchover=False,
+        )
+        assert result.deployment_id == "bgd-rds-456"
+        assert result.source_instance == "test-instance"
+
+
+class TestPollDeploymentStatus:
+    """Tests for the deployment polling function."""
+
+    @patch("rds_migrate.migrate.time.sleep", return_value=None)
+    def test_poll_reaches_available(self, mock_sleep: MagicMock, mock_rds_client: MagicMock) -> None:
+        """Should return AVAILABLE when deployment becomes ready."""
+        mock_rds_client.describe_blue_green_deployments.side_effect = [
+            {"BlueGreenDeployments": [{"Status": "PROVISIONING"}]},
+            {"BlueGreenDeployments": [{"Status": "PROVISIONING"}]},
+            {"BlueGreenDeployments": [{"Status": "AVAILABLE"}]},
+        ]
+        status = _poll_deployment_status(mock_rds_client, "bgd-123", timeout=300, poll_interval=1)
+        assert status == DeploymentStatus.AVAILABLE
+
+    @patch("rds_migrate.migrate.time.sleep", return_value=None)
+    @patch("rds_migrate.migrate.time.time")
+    def test_poll_timeout(self, mock_time: MagicMock, mock_sleep: MagicMock, mock_rds_client: MagicMock) -> None:
+        """Should raise TimeoutError when timeout is exceeded."""
+        mock_time.side_effect = [0, 0, 50, 100, 200, 400]
+        mock_rds_client.describe_blue_green_deployments.return_value = {
+            "BlueGreenDeployments": [{"Status": "PROVISIONING"}]
+        }
+        with pytest.raises(TimeoutError, match="did not complete"):
+            _poll_deployment_status(mock_rds_client, "bgd-123", timeout=100, poll_interval=1)
+
+    @patch("rds_migrate.migrate.time.sleep", return_value=None)
+    def test_poll_detects_failure(self, mock_sleep: MagicMock, mock_rds_client: MagicMock) -> None:
+        """Should return FAILED status without error."""
+        mock_rds_client.describe_blue_green_deployments.return_value = {
+            "BlueGreenDeployments": [{"Status": "FAILED"}]
+        }
+        status = _poll_deployment_status(mock_rds_client, "bgd-123", timeout=300, poll_interval=1)
+        assert status == DeploymentStatus.FAILED
 
 
 class TestRollbackDeployment:
@@ -124,35 +208,40 @@ class TestRollbackDeployment:
         assert isinstance(result, DeploymentResult)
         assert result.deployment_id == "bgd-12345"
 
-    # TODO: Add tests once implementation is complete:
-    # - test_green_environment_deleted
-    # - test_parameter_group_cleaned_up
-    # - test_nonexistent_deployment_handled
+    def test_green_environment_deleted(self, mock_rds_client: MagicMock) -> None:
+        """Should call delete with DeleteTarget=True and return DELETED."""
+        result = rollback_deployment(mock_rds_client, "bgd-12345", delete_green=True)
+        mock_rds_client.delete_blue_green_deployment.assert_called_once_with(
+            BlueGreenDeploymentIdentifier="bgd-12345",
+            DeleteTarget=True,
+        )
+        assert result.status == DeploymentStatus.DELETED
+
+    def test_rollback_failure_handled(self, mock_rds_client: MagicMock) -> None:
+        """Should handle deletion errors gracefully."""
+        mock_rds_client.delete_blue_green_deployment.side_effect = Exception("AccessDenied")
+        result = rollback_deployment(mock_rds_client, "bgd-12345")
+        assert result.status == DeploymentStatus.FAILED
+        assert "Rollback failed" in result.message
 
 
 class TestValidateUpgradePath:
     """Tests for the upgrade path validation utility."""
 
     def test_pg13_to_pg16_supported(self) -> None:
-        """PG 13 to PG 16 should be a valid upgrade path."""
         assert validate_upgrade_path(13, 16) is True
 
     def test_pg13_to_pg14_supported(self) -> None:
-        """PG 13 to PG 14 should be a valid upgrade path."""
         assert validate_upgrade_path(13, 14) is True
 
     def test_pg15_to_pg16_supported(self) -> None:
-        """PG 15 to PG 16 should be a valid upgrade path."""
         assert validate_upgrade_path(15, 16) is True
 
     def test_downgrade_not_supported(self) -> None:
-        """Downgrade (PG 16 to PG 13) should not be supported."""
         assert validate_upgrade_path(16, 13) is False
 
     def test_same_version_not_supported(self) -> None:
-        """Same version upgrade should not be supported."""
         assert validate_upgrade_path(13, 13) is False
 
     def test_unsupported_source_version(self) -> None:
-        """Very old versions (PG 11) should not be in the supported paths."""
         assert validate_upgrade_path(11, 16) is False
