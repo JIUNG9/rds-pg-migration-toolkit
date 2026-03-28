@@ -7,17 +7,25 @@ stale optimizer statistics. This module automates:
   2. REINDEX on critical indexes (rebuild potentially bloated indexes)
   3. Bloat detection (identify tables/indexes needing VACUUM or REINDEX)
 
-IMPORTANT: Do NOT run VACUUM FULL after migration — it acquires ACCESS EXCLUSIVE
+IMPORTANT: Do NOT run VACUUM FULL after migration -- it acquires ACCESS EXCLUSIVE
 locks and can cause downtime. Use regular VACUUM and ANALYZE instead.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from rds_migrate.utils import DEFAULTS
+
 logger = logging.getLogger(__name__)
+
+_PSYCOPG2_INSTALL_MSG = (
+    "psycopg2 is required for maintenance operations. "
+    "Install with: pip install rds-pg-migration-toolkit[db]"
+)
 
 
 @dataclass
@@ -89,9 +97,6 @@ def run_maintenance(
         logger.warning("No maintenance tasks requested. Use --analyze, --reindex, or --check-bloat.")
         return report
 
-    # TODO: Establish connection using connection_string or resolve from instance_id
-    # conn = _get_connection(connection_string)
-
     if run_analyze:
         analyze_tasks = analyze_all_tables(connection_string)
         report.tasks.extend(analyze_tasks)
@@ -125,28 +130,84 @@ def analyze_all_tables(
     Returns:
         List of MaintenanceTask results, one per table.
     """
-    # TODO: Implement:
-    # 1. Connect to the database
-    # 2. Query information_schema.tables for all user tables
-    # 3. For each table, run ANALYZE and measure duration
-    # 4. Return list of MaintenanceTask results
-    #
-    # SQL to get tables:
-    #   SELECT schemaname, tablename
-    #   FROM pg_tables
-    #   WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
-    #   ORDER BY pg_total_relation_size(schemaname || '.' || tablename) DESC;
-    #
-    # Run largest tables first to warm the cache faster
     logger.info("Running ANALYZE on all user tables...")
-    return [
-        MaintenanceTask(
-            name="ANALYZE",
-            table_or_index="*",
-            status="skipped",
-            message="Not yet implemented — requires database connection.",
+
+    try:
+        import psycopg2
+    except ImportError:
+        return [
+            MaintenanceTask(
+                name="ANALYZE",
+                table_or_index="*",
+                status="skipped",
+                message=_PSYCOPG2_INSTALL_MSG,
+            )
+        ]
+
+    if not connection_string:
+        return [
+            MaintenanceTask(
+                name="ANALYZE",
+                table_or_index="*",
+                status="skipped",
+                message="No connection string provided.",
+            )
+        ]
+
+    tasks: list[MaintenanceTask] = []
+    try:
+        conn = psycopg2.connect(connection_string)
+        conn.autocommit = True
+        cur = conn.cursor()
+
+        # Get all user tables, ordered by size (largest first)
+        cur.execute(
+            "SELECT schemaname, tablename FROM pg_tables "
+            "WHERE schemaname NOT IN ('pg_catalog', 'information_schema') "
+            "ORDER BY pg_total_relation_size("
+            "'\"' || schemaname || '\".\"' || tablename || '\"') DESC"
         )
-    ]
+        tables = cur.fetchall()
+
+        for schema, table in tables:
+            qualified = f"{schema}.{table}"
+            start = time.perf_counter()
+            try:
+                cur.execute(f'ANALYZE VERBOSE "{schema}"."{table}"')
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                tasks.append(
+                    MaintenanceTask(
+                        name="ANALYZE",
+                        table_or_index=qualified,
+                        status="completed",
+                        duration_ms=elapsed_ms,
+                    )
+                )
+            except Exception as exc:
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                tasks.append(
+                    MaintenanceTask(
+                        name="ANALYZE",
+                        table_or_index=qualified,
+                        status="failed",
+                        duration_ms=elapsed_ms,
+                        message=str(exc),
+                    )
+                )
+
+        cur.close()
+        conn.close()
+    except Exception as exc:
+        tasks.append(
+            MaintenanceTask(
+                name="ANALYZE",
+                table_or_index="*",
+                status="failed",
+                message=f"Connection error: {exc}",
+            )
+        )
+
+    return tasks
 
 
 def reindex_critical_indexes(
@@ -166,23 +227,103 @@ def reindex_critical_indexes(
     Returns:
         List of MaintenanceTask results, one per index.
     """
-    # TODO: Implement:
-    # 1. Connect to the database
-    # 2. Query pg_indexes joined with pg_relation_size to find large indexes
-    # 3. For each index above threshold, run REINDEX INDEX CONCURRENTLY
-    # 4. Return list of MaintenanceTask results
-    #
-    # Use REINDEX CONCURRENTLY to avoid ACCESS EXCLUSIVE locks
-    # Threshold: indexes > 1GB by default (configurable)
     logger.info("Running REINDEX on critical indexes...")
-    return [
-        MaintenanceTask(
-            name="REINDEX",
-            table_or_index="*",
-            status="skipped",
-            message="Not yet implemented — requires database connection.",
+
+    try:
+        import psycopg2
+    except ImportError:
+        return [
+            MaintenanceTask(
+                name="REINDEX",
+                table_or_index="*",
+                status="skipped",
+                message=_PSYCOPG2_INSTALL_MSG,
+            )
+        ]
+
+    if not connection_string:
+        return [
+            MaintenanceTask(
+                name="REINDEX",
+                table_or_index="*",
+                status="skipped",
+                message="No connection string provided.",
+            )
+        ]
+
+    threshold_bytes = DEFAULTS["reindex_size_threshold_mb"] * 1024 * 1024
+    tasks: list[MaintenanceTask] = []
+
+    try:
+        conn = psycopg2.connect(connection_string)
+        conn.autocommit = True
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT schemaname, indexname, "
+            "pg_relation_size(quote_ident(schemaname) || '.' || quote_ident(indexname)) AS index_size "
+            "FROM pg_indexes "
+            "WHERE schemaname NOT IN ('pg_catalog', 'information_schema') "
+            "ORDER BY index_size DESC"
         )
-    ]
+        indexes = cur.fetchall()
+
+        reindexed = False
+        for schema, indexname, index_size in indexes:
+            qualified = f"{schema}.{indexname}"
+            if index_size < threshold_bytes:
+                continue
+
+            reindexed = True
+            size_mb = index_size / (1024 * 1024)
+            start = time.perf_counter()
+            try:
+                cur.execute(f'REINDEX INDEX CONCURRENTLY "{schema}"."{indexname}"')
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                tasks.append(
+                    MaintenanceTask(
+                        name="REINDEX",
+                        table_or_index=qualified,
+                        status="completed",
+                        duration_ms=elapsed_ms,
+                        message=f"Size: {size_mb:.0f}MB",
+                    )
+                )
+            except Exception as exc:
+                elapsed_ms = (time.perf_counter() - start) * 1000
+                tasks.append(
+                    MaintenanceTask(
+                        name="REINDEX",
+                        table_or_index=qualified,
+                        status="failed",
+                        duration_ms=elapsed_ms,
+                        message=str(exc),
+                    )
+                )
+
+        if not reindexed:
+            tasks.append(
+                MaintenanceTask(
+                    name="REINDEX",
+                    table_or_index="*",
+                    status="skipped",
+                    message=f"No indexes above threshold ({DEFAULTS['reindex_size_threshold_mb']}MB).",
+                )
+            )
+
+        cur.close()
+        conn.close()
+    except Exception as exc:
+        tasks.append(
+            MaintenanceTask(
+                name="REINDEX",
+                table_or_index="*",
+                status="failed",
+                message=f"Connection error: {exc}",
+            )
+        )
+
+    return tasks
 
 
 def detect_bloat(
@@ -190,8 +331,8 @@ def detect_bloat(
 ) -> list[MaintenanceTask]:
     """Detect table and index bloat after migration.
 
-    Uses the pgstattuple extension or statistical estimation to identify
-    tables and indexes with significant bloat. Reports findings but does
+    Uses pg_stat_user_tables to estimate dead tuple ratios and flag
+    tables exceeding the configured threshold. Reports findings but does
     not take action (VACUUM FULL requires careful manual planning).
 
     Args:
@@ -200,29 +341,86 @@ def detect_bloat(
     Returns:
         List of MaintenanceTask results with bloat estimates.
     """
-    # TODO: Implement:
-    # 1. Connect to the database
-    # 2. Use pg_stat_user_tables to estimate dead tuple ratio
-    # 3. Optionally use pgstattuple for more accurate estimates
-    # 4. Flag tables with > 20% bloat
-    # 5. Return findings as MaintenanceTask results
-    #
-    # Estimation query:
-    #   SELECT schemaname, relname,
-    #          n_dead_tup,
-    #          n_live_tup,
-    #          CASE WHEN n_live_tup > 0
-    #               THEN round(n_dead_tup::numeric / n_live_tup * 100, 2)
-    #               ELSE 0 END AS dead_ratio
-    #   FROM pg_stat_user_tables
-    #   WHERE n_dead_tup > 10000
-    #   ORDER BY n_dead_tup DESC;
     logger.info("Checking for table and index bloat...")
-    return [
-        MaintenanceTask(
-            name="Bloat Check",
-            table_or_index="*",
-            status="skipped",
-            message="Not yet implemented — requires database connection.",
+
+    try:
+        import psycopg2
+    except ImportError:
+        return [
+            MaintenanceTask(
+                name="Bloat Check",
+                table_or_index="*",
+                status="skipped",
+                message=_PSYCOPG2_INSTALL_MSG,
+            )
+        ]
+
+    if not connection_string:
+        return [
+            MaintenanceTask(
+                name="Bloat Check",
+                table_or_index="*",
+                status="skipped",
+                message="No connection string provided.",
+            )
+        ]
+
+    threshold_pct = DEFAULTS["bloat_warning_threshold_pct"]
+    tasks: list[MaintenanceTask] = []
+
+    try:
+        conn = psycopg2.connect(connection_string)
+        conn.autocommit = True
+        cur = conn.cursor()
+
+        cur.execute(
+            "SELECT schemaname, relname, n_dead_tup, n_live_tup, "
+            "CASE WHEN n_live_tup > 0 "
+            "THEN round(n_dead_tup::numeric / n_live_tup * 100, 2) "
+            "ELSE 0 END AS dead_ratio "
+            "FROM pg_stat_user_tables "
+            "WHERE n_dead_tup > 10000 "
+            "ORDER BY n_dead_tup DESC"
         )
-    ]
+        rows = cur.fetchall()
+
+        flagged = False
+        for schema, relname, n_dead, n_live, dead_ratio in rows:
+            qualified = f"{schema}.{relname}"
+            dead_ratio_float = float(dead_ratio)
+            if dead_ratio_float >= threshold_pct:
+                flagged = True
+                tasks.append(
+                    MaintenanceTask(
+                        name="Bloat Check",
+                        table_or_index=qualified,
+                        status="completed",
+                        message=f"Dead tuple ratio: {dead_ratio_float:.1f}% "
+                                f"({n_dead:,} dead / {n_live:,} live). "
+                                f"Consider VACUUM ANALYZE.",
+                    )
+                )
+
+        if not flagged:
+            tasks.append(
+                MaintenanceTask(
+                    name="Bloat Check",
+                    table_or_index="*",
+                    status="completed",
+                    message=f"No tables exceed {threshold_pct}% dead tuple ratio.",
+                )
+            )
+
+        cur.close()
+        conn.close()
+    except Exception as exc:
+        tasks.append(
+            MaintenanceTask(
+                name="Bloat Check",
+                table_or_index="*",
+                status="failed",
+                message=f"Connection error: {exc}",
+            )
+        )
+
+    return tasks
