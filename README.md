@@ -1,5 +1,9 @@
 # rds-pg-migration-toolkit
 
+[![CI](https://github.com/JIUNG9/rds-pg-migration-toolkit/actions/workflows/ci.yml/badge.svg)](https://github.com/JIUNG9/rds-pg-migration-toolkit/actions/workflows/ci.yml)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 A CLI toolkit for safe, zero-downtime PostgreSQL major version upgrades on AWS RDS/Aurora using blue-green deployments.
 
 Built from real-world experience migrating **49 RDS/Aurora PostgreSQL instances from PG 13 to PG 16** in a multi-account AWS environment.
@@ -220,4 +224,10 @@ MIT License. See [LICENSE](LICENSE).
 
 - Experience: 49 RDS/Aurora PostgreSQL migrations (PG 13 to PG 16) across a multi-account AWS environment
 - Background: AWS multi-account hub-spoke architecture, Terraform, EKS, ArgoCD
-- [GitHub](https://github.com/junegu)
+- [GitHub](https://github.com/JIUNG9)
+
+---
+
+## Related Articles
+
+- [Zero-Downtime PostgreSQL 13 to 16: Lessons from Migrating 49 RDS Instances](https://medium.com/@junegu) — The real-world experience behind this toolkit, including the `max_logical_replication_workers` discovery and cold cache mitigation
