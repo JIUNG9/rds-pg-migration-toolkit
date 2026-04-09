@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rds-pg-migration-toolkit"
-version = "0.1.0"
+version = "0.5.0"
 description = "CLI toolkit for safe, zero-downtime PostgreSQL major version upgrades on AWS RDS/Aurora using blue-green deployments"
 readme = "README.md"
 license = {text = "MIT"}
