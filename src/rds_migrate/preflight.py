@@ -86,7 +86,7 @@ class PreflightReport:
             )
 
         console.print(table)
-        return console.export_text()
+        return str(console.export_text())
 
 
 # Parameters removed or changed between PG major versions.

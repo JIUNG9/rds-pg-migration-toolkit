@@ -20,6 +20,10 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Install the package too, not just the linters. Without boto3/rich/click
+          # present, --ignore-missing-imports turns every third-party call into Any
+          # and mypy silently stops checking the code that matters.
+          pip install -e "."
           pip install flake8 mypy
 
       - name: Lint with flake8
