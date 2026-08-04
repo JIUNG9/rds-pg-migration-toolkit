@@ -99,6 +99,41 @@ class TestCreateAutomation:
         assert "AccessDenied" in result.message
 
 
+class TestRetryRuleResult:
+    """Tests for the RetryRuleResult dataclass and its operator-facing __str__."""
+
+    def test_str_reports_every_field_an_operator_needs(self) -> None:
+        """__str__ is what gets printed after a create — it must not hide the status."""
+        result = RetryRuleResult(
+            rule_name="rds-migrate-retry-abc",
+            rule_arn="arn:aws:events:us-east-1:123:rule/rds-migrate-retry-abc",
+            lambda_function_name="rds-migrate-retry-abc-fn",
+            lambda_function_arn="arn:aws:lambda:us-east-1:123:function:rds-migrate-retry-abc-fn",
+            status="created",
+            message="Retry automation created successfully.",
+        )
+        rendered = str(result)
+        assert "rds-migrate-retry-abc" in rendered
+        assert "rds-migrate-retry-abc-fn" in rendered
+        assert "created" in rendered
+        assert "Retry automation created successfully." in rendered
+
+    def test_str_on_a_failed_result_surfaces_the_reason(self) -> None:
+        """A failure with no ARNs must still print why, or the operator is blind."""
+        result = RetryRuleResult(
+            rule_name="rds-migrate-retry-xyz",
+            rule_arn=None,
+            lambda_function_name="rds-migrate-retry-xyz-fn",
+            lambda_function_arn=None,
+            status="failed",
+            message="Creation failed: AccessDenied",
+        )
+        rendered = str(result)
+        assert "failed" in rendered
+        assert "AccessDenied" in rendered
+        assert "None" not in rendered
+
+
 class TestListRetryRules:
     """Tests for the list_retry_rules function."""
 

@@ -101,8 +101,16 @@ class TestCreateTargetParameterGroup:
         """Should filter max_logical_replication_workers for PG 13 -> 16."""
         mock_rds_client.describe_db_parameters.return_value = {
             "Parameters": [
-                {"ParameterName": "max_connections", "ParameterValue": "200", "ApplyMethod": "pending-reboot"},
-                {"ParameterName": "max_logical_replication_workers", "ParameterValue": "4", "ApplyMethod": "pending-reboot"},
+                {
+                    "ParameterName": "max_connections",
+                    "ParameterValue": "200",
+                    "ApplyMethod": "pending-reboot",
+                },
+                {
+                    "ParameterName": "max_logical_replication_workers",
+                    "ParameterValue": "4",
+                    "ApplyMethod": "pending-reboot",
+                },
             ]
         }
         name = _create_target_parameter_group(

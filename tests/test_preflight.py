@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
 
 from rds_migrate.preflight import (
     CheckResult,
@@ -271,3 +270,85 @@ class TestRunPreflightChecks:
             "Blue-Green Support",
         }
         assert check_names == expected_names
+
+
+class TestCheckExtensionCompatibility:
+    """Tests for check_extension_compatibility.
+
+    The function has no DB connection, so it infers installed extensions from the
+    parameter group — shared_preload_libraries is the best available signal.
+    """
+
+    def _client(self, parameters: list[dict], *, cluster: bool = False) -> MagicMock:
+        client = MagicMock()
+        if cluster:
+            client.describe_db_instances.side_effect = KeyError("DBInstances")
+            client.describe_db_clusters.return_value = {
+                "DBClusters": [{"DBClusterParameterGroup": "cluster-pg16"}]
+            }
+        else:
+            client.describe_db_instances.return_value = {
+                "DBInstances": [{"DBParameterGroups": [{"DBParameterGroupName": "pg16"}]}]
+            }
+        client.describe_db_parameters.return_value = {"Parameters": parameters}
+        return client
+
+    def test_warns_on_extension_in_shared_preload_libraries(self) -> None:
+        """A known extension in shared_preload_libraries should raise a WARN."""
+        client = self._client(
+            [{"ParameterName": "shared_preload_libraries", "ParameterValue": "pg_stat_statements"}]
+        )
+        result = check_extension_compatibility(client, "test-db", "16")
+        assert result.status == CheckStatus.WARN
+        assert result.details is not None
+        flagged = result.details["flagged_extensions"]
+        assert any("pg_stat_statements" in f for f in flagged)
+
+    def test_flags_each_known_extension_once(self) -> None:
+        """Two known extensions preloaded should produce two distinct entries."""
+        client = self._client(
+            [
+                {
+                    "ParameterName": "shared_preload_libraries",
+                    "ParameterValue": "pg_stat_statements,pglogical",
+                }
+            ]
+        )
+        result = check_extension_compatibility(client, "test-db", "16")
+        flagged = result.details["flagged_extensions"]
+        names = sorted(f.split(":")[0] for f in flagged)
+        assert names == ["pg_stat_statements", "pglogical"]
+
+    def test_passes_when_no_known_extensions(self) -> None:
+        """An unrecognized preload library is not a compatibility concern."""
+        client = self._client(
+            [{"ParameterName": "shared_preload_libraries", "ParameterValue": "auto_explain"}]
+        )
+        result = check_extension_compatibility(client, "test-db", "16")
+        assert result.status == CheckStatus.PASS
+
+    def test_falls_back_to_cluster_parameter_group(self) -> None:
+        """Aurora has no DBParameterGroups on the instance — use the cluster's."""
+        client = self._client(
+            [{"ParameterName": "shared_preload_libraries", "ParameterValue": "pglogical"}],
+            cluster=True,
+        )
+        result = check_extension_compatibility(client, "test-cluster", "16")
+        assert result.status == CheckStatus.WARN
+        client.describe_db_clusters.assert_called_once()
+
+    def test_skips_when_parameter_group_undiscoverable(self) -> None:
+        """Neither instance nor cluster resolvable: SKIP, never a false PASS."""
+        client = MagicMock()
+        client.describe_db_instances.side_effect = KeyError("DBInstances")
+        client.describe_db_clusters.side_effect = Exception("DBClusterNotFoundFault")
+        result = check_extension_compatibility(client, "ghost-db", "16")
+        assert result.status == CheckStatus.SKIP
+
+    def test_warns_when_parameter_read_fails(self) -> None:
+        """An unreadable parameter group warns rather than silently passing."""
+        client = self._client([])
+        client.describe_db_parameters.side_effect = Exception("AccessDenied")
+        result = check_extension_compatibility(client, "test-db", "16")
+        assert result.status == CheckStatus.WARN
+        assert "Could not read parameter group" in result.message
