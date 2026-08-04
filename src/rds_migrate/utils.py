@@ -11,7 +11,6 @@ Provides:
 from __future__ import annotations
 
 import logging
-import os
 from pathlib import Path
 from typing import Any
 
@@ -243,7 +242,7 @@ def get_instance_arn(
     # Try standalone RDS instance first
     try:
         resp = rds_client.describe_db_instances(DBInstanceIdentifier=instance_id)
-        arn = resp["DBInstances"][0]["DBInstanceArn"]
+        arn = str(resp["DBInstances"][0]["DBInstanceArn"])
         logger.debug("Resolved %s as RDS instance: %s", instance_id, arn)
         return arn
     except (KeyError, IndexError):
@@ -255,7 +254,7 @@ def get_instance_arn(
     # Fall back to Aurora cluster
     try:
         resp = rds_client.describe_db_clusters(DBClusterIdentifier=instance_id)
-        arn = resp["DBClusters"][0]["DBClusterArn"]
+        arn = str(resp["DBClusters"][0]["DBClusterArn"])
         logger.debug("Resolved %s as Aurora cluster: %s", instance_id, arn)
         return arn
     except (KeyError, IndexError):

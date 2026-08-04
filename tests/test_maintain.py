@@ -10,7 +10,6 @@ from __future__ import annotations
 import sys
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from rds_migrate.maintain import (
     MaintenanceReport,

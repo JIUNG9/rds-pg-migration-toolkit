@@ -420,7 +420,7 @@ def generate_sam_template(config: RetryConfig | None = None) -> str:
         },
     }
 
-    return yaml.dump(template, default_flow_style=False, sort_keys=False)
+    return str(yaml.dump(template, default_flow_style=False, sort_keys=False))
 
 
 def list_retry_rules(

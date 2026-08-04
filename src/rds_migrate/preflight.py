@@ -108,6 +108,16 @@ EXTENSION_COMPATIBILITY_NOTES: dict[str, str] = {
 }
 
 
+def _region_from_arn(arn: str) -> str:
+    """Return the region segment of an AWS ARN, or "" if it isn't parseable.
+
+    ARN shape: arn:aws:rds:REGION:account:db:id — region is index 3. Checking only
+    for the presence of a colon isn't enough; a truncated ARN would IndexError.
+    """
+    parts = arn.split(":")
+    return parts[3] if len(parts) > 3 else ""
+
+
 def run_preflight_checks(
     rds_client: Any,
     instance_id: str,
@@ -601,12 +611,12 @@ def check_blue_green_support(
         for replica_arn in instance.get("ReadReplicaDBInstanceIdentifiers", []):
             if isinstance(replica_arn, str) and ":rds:" in replica_arn:
                 # Extract region from ARN: arn:aws:rds:REGION:account:db:id
-                parts = replica_arn.split(":")
-                if len(parts) >= 4:
-                    replica_region = parts[3]
-                    instance_region = instance.get("DBInstanceArn", "").split(":")[3] if ":" in instance.get("DBInstanceArn", "") else ""
-                    if replica_region != instance_region:
-                        cross_region_replicas.append(replica_arn)
+                replica_region = _region_from_arn(replica_arn)
+                instance_region = _region_from_arn(instance.get("DBInstanceArn", ""))
+                # Only claim a cross-region replica when both regions are known —
+                # an unparseable ARN is not evidence of anything.
+                if replica_region and instance_region and replica_region != instance_region:
+                    cross_region_replicas.append(replica_arn)
     except (KeyError, IndexError):
         pass
     except Exception as exc:
