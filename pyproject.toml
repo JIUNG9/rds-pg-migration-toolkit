@@ -8,7 +8,7 @@ version = "0.5.0"
 description = "CLI toolkit for safe, zero-downtime PostgreSQL major version upgrades on AWS RDS/Aurora using blue-green deployments"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [
     {name = "June Gu", email = "junegu@example.com"},
 ]
@@ -74,7 +74,7 @@ markers = [
 ]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
