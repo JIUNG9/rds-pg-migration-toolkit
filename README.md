@@ -230,4 +230,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ## Related Articles
 
-- [Zero-Downtime PostgreSQL 13 to 16: Lessons from Migrating 49 RDS Instances](https://medium.com/@junegu) — The real-world experience behind this toolkit, including the `max_logical_replication_workers` discovery and cold cache mitigation
+- [Zero-Downtime PostgreSQL 13 to 16: Lessons from Migrating 49 RDS Instances](https://medium.com/@June-Gu) — The real-world experience behind this toolkit, including the `max_logical_replication_workers` discovery and cold cache mitigation

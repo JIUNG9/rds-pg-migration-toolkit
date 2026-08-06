@@ -14,7 +14,7 @@ Thank you for your interest in contributing. This toolkit was born from real-wor
 
 ```bash
 # Clone the repository
-git clone https://github.com/junegu/rds-pg-migration-toolkit.git
+git clone https://github.com/JIUNG9/rds-pg-migration-toolkit.git
 cd rds-pg-migration-toolkit
 
 # Create a virtual environment
