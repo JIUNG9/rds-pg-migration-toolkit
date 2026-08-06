@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "June Gu", email = "junegu@example.com"},
+    {name = "June Gu"},
 ]
 keywords = [
     "aws",
@@ -59,10 +59,10 @@ dev = [
 rds-migrate = "rds_migrate.cli:cli"
 
 [project.urls]
-Homepage = "https://github.com/junegu/rds-pg-migration-toolkit"
-Repository = "https://github.com/junegu/rds-pg-migration-toolkit"
-Issues = "https://github.com/junegu/rds-pg-migration-toolkit/issues"
-Documentation = "https://github.com/junegu/rds-pg-migration-toolkit/tree/main/docs"
+Homepage = "https://github.com/JIUNG9/rds-pg-migration-toolkit"
+Repository = "https://github.com/JIUNG9/rds-pg-migration-toolkit"
+Issues = "https://github.com/JIUNG9/rds-pg-migration-toolkit/issues"
+Documentation = "https://github.com/JIUNG9/rds-pg-migration-toolkit/tree/main/docs"
 
 [tool.setuptools.packages.find]
 where = ["src"]
