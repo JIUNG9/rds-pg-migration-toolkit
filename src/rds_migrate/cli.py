@@ -169,15 +169,27 @@ def maintain(
 
 @cli.command()
 @click.option("--deployment-id", required=True, help="Blue-green deployment identifier (e.g., bgd-xxxx).")
-@click.option("--delete-green", is_flag=True, default=True, help="Delete the green environment.")
+@click.option(
+    "--delete-green",
+    is_flag=True,
+    default=False,
+    help="Also delete the green environment (destructive). Without it the green side is kept.",
+)
+@click.option("--yes", is_flag=True, default=False, help="Skip the confirmation prompt for --delete-green.")
 @click.pass_context
-def rollback(ctx: click.Context, deployment_id: str, delete_green: bool) -> None:
+def rollback(ctx: click.Context, deployment_id: str, delete_green: bool, yes: bool) -> None:
     """Roll back a failed or unwanted blue-green deployment.
 
-    Deletes the green environment and restores the original parameter
-    group configuration.
+    Cancels the deployment and keeps the green environment. Pass
+    --delete-green to delete it too; you are asked to confirm first.
     """
     from rds_migrate.migrate import rollback_deployment
+
+    if delete_green and not yes:
+        click.confirm(
+            f"Delete the green environment of {deployment_id}? This cannot be undone.",
+            abort=True,
+        )
 
     rds_client = get_rds_client(
         profile=ctx.obj["profile"],
