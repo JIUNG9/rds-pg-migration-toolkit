@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- `rollback --delete-green` could not be turned off (`default=True` on a flag), so every rollback deleted the green environment. It now defaults to keeping it; `--delete-green` asks for confirmation, `--yes` skips it.
+
 ## [0.5.0] - 2026-04-10
 
 ### Added
