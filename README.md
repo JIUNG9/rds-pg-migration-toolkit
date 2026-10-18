@@ -128,6 +128,8 @@ rds-migrate maintain --instance mydb --analyze --reindex
 | `maintain`  | Run post-migration maintenance (ANALYZE, REINDEX, bloat)  | `rds-migrate maintain --instance mydb --analyze --reindex`     |
 | `rollback`  | Roll back a failed or unwanted migration                  | `rds-migrate rollback --deployment-id bgd-xxxx`                |
 
+`rollback` keeps the green environment unless you pass `--delete-green`, which asks for confirmation first (`--yes` skips the prompt).
+
 ### Global Options
 
 | Option          | Description                           | Default         |
