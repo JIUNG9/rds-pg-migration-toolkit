@@ -37,7 +37,7 @@ The principle in one line: **if a rule can only be upheld by a human remembering
 ### 1. Employer name check
 
 ```
-PATTERN: acme-corp|acme-corp|acme-retail|acme-retail|acme-it
+PATTERN: acme-corp|acme-corp|acme-retail|acme-retail|acme-it|acme-corp|prod-a|prod-b|prod-c|acme-app
 SCOPE:   *.py, *.go, *.ts, *.tsx, *.js, *.jsx, *.json, *.yaml, *.yml, *.sh, *.toml
 EXCLUDE: node_modules/, .git/, articles/, docs/, memory/, .claude/
 ```
