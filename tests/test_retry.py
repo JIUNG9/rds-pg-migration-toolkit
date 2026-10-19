@@ -201,6 +201,66 @@ class TestDeleteAutomation:
         assert result is False
 
 
+class TestDeleteAutomationOrdering:
+    """Dependency ordering: targets before the rule, the rule before the Lambda."""
+
+    @staticmethod
+    def _clients() -> tuple[MagicMock, MagicMock, MagicMock]:
+        """Two clients hung off one parent mock so call order is comparable."""
+        parent = MagicMock()
+        parent.events.list_targets_by_rule.return_value = {
+            "Targets": [{"Id": "t1"}, {"Id": "t2"}]
+        }
+        return parent, parent.events, parent.lam
+
+    def test_calls_happen_in_dependency_order(self) -> None:
+        parent, events, lam = self._clients()
+
+        assert delete_retry_automation(events, lam, "test-rule", "test-lambda") is True
+
+        names = [c[0] for c in parent.mock_calls]
+        assert names == [
+            "events.list_targets_by_rule",
+            "events.remove_targets",
+            "events.delete_rule",
+            "lam.delete_function",
+        ]
+
+    def test_removes_every_target_id(self) -> None:
+        _, events, lam = self._clients()
+
+        delete_retry_automation(events, lam, "test-rule", "test-lambda")
+
+        events.remove_targets.assert_called_once_with(Rule="test-rule", Ids=["t1", "t2"])
+
+    def test_remove_targets_failure_leaves_rule_and_lambda(self) -> None:
+        """The rule can't be deleted while it has targets, so stop before touching it."""
+        _, events, lam = self._clients()
+        events.remove_targets.side_effect = Exception("throttled")
+
+        assert delete_retry_automation(events, lam, "test-rule", "test-lambda") is False
+
+        events.delete_rule.assert_not_called()
+        lam.delete_function.assert_not_called()
+
+    def test_delete_rule_failure_leaves_lambda(self) -> None:
+        """Keep the Lambda while the rule still exists and could invoke it."""
+        _, events, lam = self._clients()
+        events.delete_rule.side_effect = Exception("access denied")
+
+        assert delete_retry_automation(events, lam, "test-rule", "test-lambda") is False
+
+        lam.delete_function.assert_not_called()
+
+    def test_lambda_failure_reports_false_after_rule_is_gone(self) -> None:
+        _, events, lam = self._clients()
+        lam.delete_function.side_effect = Exception("not found")
+
+        assert delete_retry_automation(events, lam, "test-rule", "test-lambda") is False
+
+        events.delete_rule.assert_called_once_with(Name="test-rule")
+
+
 class TestSamTemplate:
     """Tests for SAM template generation."""
 
