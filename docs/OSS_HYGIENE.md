@@ -37,7 +37,7 @@ The principle in one line: **if a rule can only be upheld by a human remembering
 ### 1. Employer name check
 
 ```
-PATTERN: placen|naver|coupang|lotte|hyundai
+PATTERN: placen|naver|coupang|lotte|hyundai|n-fnb|nowwaiting|dodopoint|whitelabel|connectorder
 SCOPE:   *.py, *.go, *.ts, *.tsx, *.js, *.jsx, *.json, *.yaml, *.yml, *.sh, *.toml
 EXCLUDE: node_modules/, .git/, articles/, docs/, memory/, .claude/
 ```
