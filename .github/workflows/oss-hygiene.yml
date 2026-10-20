@@ -34,7 +34,7 @@ jobs:
           echo "Scanning for employer names outside docs/articles..."
           # The employer list. Update when the author changes employer.
           # Each new job → add the old + new name here AND to docs/OSS_HYGIENE.md.
-          EMPLOYER_PATTERNS='acme-corp|acme|acme-retail|acme-retail|acme-it|acme-corp|prod-a|prod-b|prod-c|acme-app'
+          EMPLOYER_PATTERNS='placen|naver|coupang|lotte|hyundai|n-fnb|nowwaiting|dodopoint|whitelabel|connectorder'
           MATCHES=$(
             grep -rEil "${EMPLOYER_PATTERNS}" \
               --include='*.py' \
@@ -69,7 +69,7 @@ jobs:
         run: |
           set -e
           echo "Scanning for the author's personal email in code..."
-          EMAIL_PATTERNS='jiung\.gu@|@acme-corp\.co\.kr|@acme\.com|@acme-retail\.com'
+          EMAIL_PATTERNS='jiung\.gu@|@placen\.co\.kr|@naver\.com|@coupang\.com'
           MATCHES=$(
             grep -rEil "${EMAIL_PATTERNS}" \
               --include='*.py' \

@@ -20,8 +20,8 @@ This document is both a spec and a checklist. It is referenced by the CI workflo
 | --- | --- | --- |
 | Detection regex | Hardcodes the author's employer hostname suffix | Matches generic `.internal / .local / .corp / .intranet / .lan`; company-specific suffixes go through `custom_patterns` config |
 | Default config | Author's personal email, author's Git remote | Generic placeholders (`bot@localhost`), empty/required remote |
-| Docstring examples | `"Contact june@example.com"` | `"Contact alice.dev@acme-corp.com"` |
-| Test fixtures | `"db01.prod.example.com"` | `"db01.prod.internal"` + one test proving `custom_patterns` can still catch company-specific suffixes |
+| Docstring examples | `"Contact jiung.gu@placen.co.kr"` | `"Contact alice.dev@acme-corp.com"` |
+| Test fixtures | `"db01.prod.placen.co.kr"` | `"db01.prod.internal"` + one test proving `custom_patterns` can still catch company-specific suffixes |
 | AWS account IDs | Real values | Docs-reserved placeholders: `123456789012`, `111122223333`, `987654321098`, or `000000000000` (LocalStack) |
 | Safety posture | "Remember to sanitize" | A shipped feature (PII proxy, IAM template, kill switch) running by default |
 | Article framing | "Here's what I built as a side project" | "Here's what the project does — and here's a case study of me using it at my employer" |
@@ -37,7 +37,7 @@ The principle in one line: **if a rule can only be upheld by a human remembering
 ### 1. Employer name check
 
 ```
-PATTERN: acme-corp|acme|acme-retail|acme-retail|acme-it|acme-corp|prod-a|prod-b|prod-c|acme-app
+PATTERN: placen|naver|coupang|lotte|hyundai|n-fnb|nowwaiting|dodopoint|whitelabel|connectorder
 SCOPE:   *.py, *.go, *.ts, *.tsx, *.js, *.jsx, *.json, *.yaml, *.yml, *.sh, *.toml
 EXCLUDE: node_modules/, .git/, articles/, docs/, memory/, .claude/
 ```
@@ -47,7 +47,7 @@ Zero matches required. Update the pattern list when the author changes employer.
 ### 2. Personal email check
 
 ```
-PATTERN: jiung\.gu@|@acme-corp\.co\.kr|@acme\.com|@acme-retail\.com
+PATTERN: jiung\.gu@|@placen\.co\.kr|@naver\.com|@coupang\.com
 SCOPE:   *.py, *.go, *.ts, *.tsx, *.js, *.jsx, *.toml
 EXCLUDE: node_modules/, .git/, articles/, docs/, memory/
 ```
@@ -82,9 +82,9 @@ When writing any OSS code, docstring, README, or test, use these placeholders ra
 
 | Instead of | Use |
 | --- | --- |
-| `acme-corp`, `a large tech company`, `a large e-commerce company`, any real company | `acme-corp`, `customer-xyz`, `your-org` |
-| `june@example.com`, any personal email | `alice.dev@acme-corp.com`, `sre-oncall@example.com` |
-| `prod.api.example.com`, any real hostname | `db01.prod.internal`, `api.cluster.corp`, `eks-node.local` |
+| `Placen`, `NAVER`, `Coupang`, any real company | `acme-corp`, `customer-xyz`, `your-org` |
+| `jiung.gu@placen.co.kr`, any personal email | `alice.dev@acme-corp.com`, `sre-oncall@example.com` |
+| `prod.api.placen.co.kr`, any real hostname | `db01.prod.internal`, `api.cluster.corp`, `eks-node.local` |
 | Real AWS account id | `123456789012` (canonical) / `111122223333` / `987654321098` / `000000000000` (LocalStack) |
 | Real customer name | `<CUSTOMER_1>`, `contoso`, `fabrikam` |
 | Real hostname suffix you want detected | Move to `custom_patterns` config in the relevant module, document as an example |
