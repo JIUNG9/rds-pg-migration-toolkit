@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Documentation
+- README: document the optional `[db]` extra and that only `maintain` needs `psycopg2` and a direct database connection.
+
 ### Fixed
 - `rollback --delete-green` could not be turned off (`default=True` on a flag), so every rollback deleted the green environment. It now defaults to keeping it; `--delete-green` asks for confirmation, `--yes` skips it.
 
