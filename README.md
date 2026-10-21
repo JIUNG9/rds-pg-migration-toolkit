@@ -92,6 +92,13 @@ This toolkit automates the entire lifecycle: **pre-flight validation, blue-green
 pip install rds-pg-migration-toolkit
 ```
 
+`preflight`, `migrate`, `verify` and `rollback` only call the AWS APIs. `maintain` also opens a direct
+PostgreSQL connection and needs the optional `[db]` extra:
+
+```bash
+pip install "rds-pg-migration-toolkit[db]"
+```
+
 ### Run pre-flight checks
 
 ```bash
@@ -113,8 +120,13 @@ rds-migrate verify --instance mydb --expected-version 16
 ### Post-migration maintenance
 
 ```bash
-rds-migrate maintain --instance mydb --analyze --reindex
+rds-migrate maintain --instance mydb --analyze --reindex \
+  --connection-string "host=mydb.example.internal port=5432 dbname=app user=maint password=..."
 ```
+
+This is the only command that needs `psycopg2` (the `[db]` extra above) and network access to the database
+itself, not just AWS credentials. Without the extra, or without `--connection-string`, each requested task is
+reported as `skipped` with the reason and nothing is changed.
 
 ---
 
