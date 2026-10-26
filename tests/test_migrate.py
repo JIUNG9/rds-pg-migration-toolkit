@@ -68,6 +68,7 @@ class TestDeploymentStatus:
             "SWITCHOVER_COMPLETED",
             "DELETE_IN_PROGRESS",
             "DELETED",
+            "CANCELLED",
             "FAILED",
         }
         actual = {s.value for s in DeploymentStatus}
@@ -224,6 +225,16 @@ class TestRollbackDeployment:
             DeleteTarget=True,
         )
         assert result.status == DeploymentStatus.DELETED
+
+    def test_green_environment_kept_is_cancelled(self, mock_rds_client: MagicMock) -> None:
+        """Keeping green should report CANCELLED, not a deletion in progress."""
+        result = rollback_deployment(mock_rds_client, "bgd-12345", delete_green=False)
+        mock_rds_client.delete_blue_green_deployment.assert_called_once_with(
+            BlueGreenDeploymentIdentifier="bgd-12345",
+            DeleteTarget=False,
+        )
+        assert result.status == DeploymentStatus.CANCELLED
+        assert "preserved" in result.message
 
     def test_rollback_failure_handled(self, mock_rds_client: MagicMock) -> None:
         """Should handle deletion errors gracefully."""

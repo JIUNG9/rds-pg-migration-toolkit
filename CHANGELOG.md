@@ -8,6 +8,7 @@ All notable changes to this project will be documented in this file.
 - README: document the optional `[db]` extra and that only `maintain` needs `psycopg2` and a direct database connection.
 
 ### Fixed
+- `rollback_deployment` returned `DELETE_IN_PROGRESS` when the green environment was kept, although nothing is deleted. It now returns the new `CANCELLED` status, so `rollback` without `--delete-green` prints `Status: CANCELLED`.
 - `rollback --delete-green` could not be turned off (`default=True` on a flag), so every rollback deleted the green environment. It now defaults to keeping it; `--delete-green` asks for confirmation, `--yes` skips it.
 
 ## [0.5.0] - 2026-04-10
