@@ -40,6 +40,7 @@ class DeploymentStatus(Enum):
     SWITCHOVER_COMPLETED = "SWITCHOVER_COMPLETED"
     DELETE_IN_PROGRESS = "DELETE_IN_PROGRESS"
     DELETED = "DELETED"
+    CANCELLED = "CANCELLED"
     FAILED = "FAILED"
 
 
@@ -498,7 +499,8 @@ def rollback_deployment(
         delete_green: If True, delete the green environment instances.
 
     Returns:
-        DeploymentResult indicating rollback status.
+        DeploymentResult with status DELETED when the green environment is deleted, or
+        CANCELLED when the deployment is cancelled and the green environment is kept.
     """
     logger.info("Rolling back deployment %s (delete_green=%s)", deployment_id, delete_green)
 
@@ -518,7 +520,7 @@ def rollback_deployment(
 
     return DeploymentResult(
         deployment_id=deployment_id,
-        status=DeploymentStatus.DELETED if delete_green else DeploymentStatus.DELETE_IN_PROGRESS,
+        status=DeploymentStatus.DELETED if delete_green else DeploymentStatus.CANCELLED,
         source_instance="unknown",
         target_version="unknown",
         message=(
