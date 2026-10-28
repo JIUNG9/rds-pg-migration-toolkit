@@ -36,6 +36,9 @@ class MaintenanceTask:
     status: str  # "completed", "failed", "skipped"
     duration_ms: float | None = None
     message: str = ""
+    # True when a requested task could not run (no psycopg2, no connection string).
+    # A "skipped" task with this unset is benign, e.g. no index above the size threshold.
+    not_run: bool = False
 
 
 @dataclass
@@ -52,6 +55,10 @@ class MaintenanceReport:
     @property
     def failed_count(self) -> int:
         return sum(1 for t in self.tasks if t.status == "failed")
+
+    @property
+    def not_run_count(self) -> int:
+        return sum(1 for t in self.tasks if t.not_run)
 
     def __str__(self) -> str:
         lines = [
@@ -140,6 +147,7 @@ def analyze_all_tables(
                 table_or_index="*",
                 status="skipped",
                 message=_PSYCOPG2_INSTALL_MSG,
+                not_run=True,
             )
         ]
 
@@ -150,6 +158,7 @@ def analyze_all_tables(
                 table_or_index="*",
                 status="skipped",
                 message="No connection string provided.",
+                not_run=True,
             )
         ]
 
@@ -237,6 +246,7 @@ def reindex_critical_indexes(
                 table_or_index="*",
                 status="skipped",
                 message=_PSYCOPG2_INSTALL_MSG,
+                not_run=True,
             )
         ]
 
@@ -247,6 +257,7 @@ def reindex_critical_indexes(
                 table_or_index="*",
                 status="skipped",
                 message="No connection string provided.",
+                not_run=True,
             )
         ]
 
@@ -351,6 +362,7 @@ def detect_bloat(
                 table_or_index="*",
                 status="skipped",
                 message=_PSYCOPG2_INSTALL_MSG,
+                not_run=True,
             )
         ]
 
@@ -361,6 +373,7 @@ def detect_bloat(
                 table_or_index="*",
                 status="skipped",
                 message="No connection string provided.",
+                not_run=True,
             )
         ]
 
