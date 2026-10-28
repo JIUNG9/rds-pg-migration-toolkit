@@ -99,6 +99,8 @@ PostgreSQL connection and needs the optional `[db]` extra:
 pip install "rds-pg-migration-toolkit[db]"
 ```
 
+`maintain` exits 1 when a task you asked for could not run (no `psycopg2`, or no `--connection-string`).
+
 ### Run pre-flight checks
 
 ```bash
