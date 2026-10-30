@@ -6,7 +6,7 @@ Thank you for your interest in contributing. This toolkit was born from real-wor
 
 ### Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - AWS CLI configured (for integration tests)
 - Git
 
