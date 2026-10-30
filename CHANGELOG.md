@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Documentation
+- README and CONTRIBUTING said Python 3.9+ and `pyproject.toml` listed a 3.9 classifier, but `requires-python` is `>=3.10` and CI tests 3.10 to 3.13. All three now say 3.10+, and the classifiers list 3.10 to 3.13.
 - README: document the optional `[db]` extra and that only `maintain` needs `psycopg2` and a direct database connection.
 
 ### Fixed
