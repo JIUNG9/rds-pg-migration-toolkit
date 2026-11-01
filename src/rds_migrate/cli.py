@@ -154,7 +154,8 @@ def maintain(
 
     Performs ANALYZE, REINDEX, and bloat detection to restore performance
     after blue-green switchover (cold cache recovery). Exits 1 when a
-    requested task could not run (psycopg2 missing or no --connection-string).
+    requested task could not run (psycopg2 missing or no --connection-string)
+    or when a task failed (connection refused, SQL error).
     """
     from rds_migrate.maintain import run_maintenance
 
@@ -166,7 +167,7 @@ def maintain(
         connection_string=connection_string,
     )
     click.echo(result)
-    if result.not_run_count:
+    if result.not_run_count or result.failed_count:
         ctx.exit(1)
 
 

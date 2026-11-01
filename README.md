@@ -99,7 +99,12 @@ PostgreSQL connection and needs the optional `[db]` extra:
 pip install "rds-pg-migration-toolkit[db]"
 ```
 
-`maintain` exits 1 when a task you asked for could not run (no `psycopg2`, or no `--connection-string`).
+`maintain` exit codes:
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Every requested task ran. A task skipped for a benign reason (no index above the size threshold) still exits 0. |
+| 1 | A requested task could not run (no `psycopg2`, or no `--connection-string`), or a task failed (connection refused, SQL error). The report is printed first. |
 
 ### Run pre-flight checks
 
