@@ -23,6 +23,24 @@ class TestMaintainExitCode:
         assert result.exit_code == 1
         assert "SKIPPED" in result.output
 
+    def test_exits_1_when_a_task_failed(self) -> None:
+        report = MaintenanceReport(
+            "db-1", [MaintenanceTask("ANALYZE", "*", "failed", message="connection refused")]
+        )
+        result = _invoke(["--analyze"], report)
+        assert result.exit_code == 1
+        assert "FAILED" in result.output
+
+    def test_exits_1_when_one_task_fails_among_completed_ones(self) -> None:
+        report = MaintenanceReport(
+            "db-1",
+            [
+                MaintenanceTask("ANALYZE", "public.a", "completed"),
+                MaintenanceTask("ANALYZE", "public.b", "failed", message="permission denied"),
+            ],
+        )
+        assert _invoke(["--analyze"], report).exit_code == 1
+
     def test_exits_0_when_every_task_ran(self) -> None:
         report = MaintenanceReport("db-1", [MaintenanceTask("ANALYZE", "public.t", "completed")])
         assert _invoke(["--analyze"], report).exit_code == 0
@@ -48,6 +66,16 @@ class TestMaintainEndToEnd:
             )
         assert result.exit_code == 1
         assert "rds-pg-migration-toolkit[db]" in result.output
+
+    def test_connection_error_exits_1(self) -> None:
+        mock_psycopg2 = MagicMock()
+        mock_psycopg2.connect.side_effect = RuntimeError("connection refused")
+        with patch.dict(sys.modules, {"psycopg2": mock_psycopg2}):
+            result = CliRunner().invoke(
+                cli, ["maintain", "--instance", "db-1", "--analyze", "--connection-string", "dbname=x"]
+            )
+        assert result.exit_code == 1
+        assert "FAILED" in result.output
 
     def test_reindex_below_threshold_exits_0(self) -> None:
         mock_psycopg2 = MagicMock()
