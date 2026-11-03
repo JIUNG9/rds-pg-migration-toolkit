@@ -29,14 +29,11 @@ Pre-flight Report: prod-api-db
 | Check                     | Status | Message                                      |
 +---------------------------+--------+----------------------------------------------+
 | PG Version Check          | PASS   | PG 13.12 -> 16 is a supported upgrade path   |
-| Parameter Compatibility   | PASS   | No incompatible parameters found              |
 | Extension Compatibility   | WARN   | pg_stat_statements: reset counters after      |
 | Storage Space             | PASS   | 45% utilized (90GB / 200GB)                  |
 | Blue-Green Support        | PASS   | Multi-AZ instance, blue-green supported       |
 +---------------------------+--------+----------------------------------------------+
 ```
-
-If the **Parameter Compatibility** check fails, you likely have `max_logical_replication_workers` in your custom parameter group. Remove it before proceeding.
 
 ## Step 2: Create Blue-Green Deployment
 

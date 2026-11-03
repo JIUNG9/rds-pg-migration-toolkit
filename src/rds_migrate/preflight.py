@@ -89,17 +89,6 @@ class PreflightReport:
         return str(console.export_text())
 
 
-# Parameters removed or changed between PG major versions.
-# Key: (source_major, target_major), Value: list of removed parameter names.
-REMOVED_PARAMETERS: dict[tuple[int, int], list[str]] = {
-    (13, 16): [
-        "max_logical_replication_workers",
-    ],
-    (14, 16): [
-        "max_logical_replication_workers",
-    ],
-}
-
 # Extensions known to have compatibility issues across PG versions.
 EXTENSION_COMPATIBILITY_NOTES: dict[str, str] = {
     "postgis": "Ensure PostGIS is updated to a version compatible with the target PG version.",
@@ -140,7 +129,6 @@ def run_preflight_checks(
 
     # Run each check and append results
     report.checks.append(check_current_version(rds_client, instance_id, target_version))
-    report.checks.append(check_parameter_compatibility(rds_client, instance_id, target_version))
     report.checks.append(check_extension_compatibility(rds_client, instance_id, target_version))
     report.checks.append(check_storage_space(rds_client, instance_id))
     report.checks.append(check_blue_green_support(rds_client, instance_id))
@@ -229,116 +217,6 @@ def check_current_version(
             "source_major": source_major,
             "target_major": target_major,
         },
-    )
-
-
-def check_parameter_compatibility(
-    rds_client: Any,
-    instance_id: str,
-    target_version: str,
-) -> CheckResult:
-    """Check parameter group for removed or changed parameters.
-
-    Critical check: parameters like max_logical_replication_workers were
-    removed in PG 16. If present in a custom parameter group, the
-    blue-green deployment will fail.
-
-    Args:
-        rds_client: boto3 RDS client.
-        instance_id: RDS instance or cluster identifier.
-        target_version: Target PG major version.
-
-    Returns:
-        CheckResult with FAIL if incompatible parameters are found.
-    """
-    target_major = int(target_version.split(".")[0])
-
-    # Determine current version and parameter group name
-    param_group_name = None
-    source_major = None
-    try:
-        resp = rds_client.describe_db_instances(DBInstanceIdentifier=instance_id)
-        instance = resp["DBInstances"][0]
-        source_major = int(instance["EngineVersion"].split(".")[0])
-        param_group_name = instance["DBParameterGroups"][0]["DBParameterGroupName"]
-    except (KeyError, IndexError):
-        pass
-    except Exception as exc:
-        if "DBInstanceNotFound" not in str(exc):
-            raise
-
-    if param_group_name is None:
-        try:
-            resp = rds_client.describe_db_clusters(DBClusterIdentifier=instance_id)
-            cluster = resp["DBClusters"][0]
-            source_major = int(cluster["EngineVersion"].split(".")[0])
-            param_group_name = cluster.get("DBClusterParameterGroup")
-        except Exception as exc:
-            return CheckResult(
-                name="Parameter Compatibility",
-                status=CheckStatus.FAIL,
-                message=f"Could not determine parameter group: {exc}",
-            )
-
-    if param_group_name is None or source_major is None:
-        return CheckResult(
-            name="Parameter Compatibility",
-            status=CheckStatus.SKIP,
-            message="Could not determine parameter group name.",
-        )
-
-    # Look up removed parameters for this version pair
-    removed = REMOVED_PARAMETERS.get((source_major, target_major), [])
-    if not removed:
-        return CheckResult(
-            name="Parameter Compatibility",
-            status=CheckStatus.PASS,
-            message=f"No known parameter removals for PG {source_major} -> {target_major}.",
-        )
-
-    # Get user-modified parameters from the parameter group.
-    # Only user-modified params matter — defaults are handled by AWS automatically.
-    user_params: list[str] = []
-    paginator_token: str | None = None
-    while True:
-        kwargs: dict[str, Any] = {
-            "DBParameterGroupName": param_group_name,
-            "Source": "user",
-        }
-        if paginator_token:
-            kwargs["Marker"] = paginator_token
-        param_resp = rds_client.describe_db_parameters(**kwargs)
-        for param in param_resp.get("Parameters", []):
-            user_params.append(param["ParameterName"])
-        paginator_token = param_resp.get("Marker")
-        if not paginator_token:
-            break
-
-    # Cross-reference user-modified params against the removed list
-    incompatible = [p for p in user_params if p in removed]
-    if incompatible:
-        logger.warning(
-            "Instance %s has incompatible parameters: %s",
-            instance_id, ", ".join(incompatible),
-        )
-        return CheckResult(
-            name="Parameter Compatibility",
-            status=CheckStatus.FAIL,
-            message=(
-                f"Incompatible parameters found: {', '.join(incompatible)}. "
-                f"These were removed in PG {target_major} and will block blue-green deployment."
-            ),
-            details={
-                "param_group": param_group_name,
-                "incompatible_params": incompatible,
-            },
-        )
-
-    return CheckResult(
-        name="Parameter Compatibility",
-        status=CheckStatus.PASS,
-        message=f"All {len(user_params)} user-modified parameters are compatible with PG {target_major}.",
-        details={"param_group": param_group_name, "user_param_count": len(user_params)},
     )
 
 

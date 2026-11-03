@@ -27,7 +27,6 @@ rds-migrate preflight \
 ```
 
 Pay special attention to:
-- **Parameter Compatibility**: Aurora uses cluster parameter groups. Ensure `max_logical_replication_workers` is not in your custom cluster parameter group.
 - **Extension Compatibility**: Aurora may have different extension versions available than standalone RDS.
 
 ## Step 2: Set Up Retry Automation (Recommended)
