@@ -5,7 +5,6 @@ Blue-green deployments on Aurora can fail due to transient issues:
   - Replication lag spikes
   - Underlying infrastructure issues
   - Concurrent maintenance operations
-  - Parameter group compatibility (max_logical_replication_workers on PG 16)
 
 This module provides:
   1. EventBridge rule creation to monitor blue-green deployment failures

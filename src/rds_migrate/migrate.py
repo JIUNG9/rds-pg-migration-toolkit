@@ -22,7 +22,6 @@ from typing import Any
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 
-from rds_migrate.preflight import REMOVED_PARAMETERS
 from rds_migrate.utils import get_instance_arn, resolve_engine_version
 
 logger = logging.getLogger(__name__)
@@ -149,9 +148,7 @@ def _create_target_parameter_group(
 ) -> str:
     """Create a target parameter group for the green environment.
 
-    Copies user-modified parameters from the source group, filtering out
-    parameters removed in the target PG version (e.g. max_logical_replication_workers
-    removed in PG 16).
+    Copies every user-modified parameter from the source group that has a value.
 
     Args:
         rds_client: boto3 RDS client.
@@ -167,11 +164,8 @@ def _create_target_parameter_group(
     target_group_name = f"{deployment_name}-pg{target_major}"
     family = f"{'aurora-' if is_cluster else ''}postgres{target_major}"
 
-    removed = set(REMOVED_PARAMETERS.get((source_major, target_major), []))
-
     logger.info(
-        "Creating target parameter group %s (family: %s, filtering %d removed params)",
-        target_group_name, family, len(removed),
+        "Creating target parameter group %s (family: %s)", target_group_name, family,
     )
 
     if is_cluster:
@@ -187,7 +181,7 @@ def _create_target_parameter_group(
             Description=f"Blue-green target for {deployment_name} (PG {target_major})",
         )
 
-    # Copy user-modified parameters, excluding removed ones
+    # Copy user-modified parameters
     source_params_resp = rds_client.describe_db_parameters(
         DBParameterGroupName=source_param_group,
         Source="user",
@@ -199,9 +193,6 @@ def _create_target_parameter_group(
     params_to_copy = []
     for param in source_params_resp.get("Parameters", []):
         name = param["ParameterName"]
-        if name in removed:
-            logger.warning("Filtering removed parameter: %s", name)
-            continue
         if param.get("ParameterValue") is not None:
             params_to_copy.append({
                 "ParameterName": name,

@@ -98,8 +98,9 @@ class TestIsAuroraCluster:
 class TestCreateTargetParameterGroup:
     """Tests for the parameter group creation helper."""
 
-    def test_filters_incompatible_params(self, mock_rds_client: MagicMock) -> None:
-        """Should filter max_logical_replication_workers for PG 13 -> 16."""
+    def test_carries_over_every_user_parameter(self, mock_rds_client: MagicMock) -> None:
+        """All user-modified parameters with a value are copied, including
+        max_logical_replication_workers (valid in PG 16)."""
         mock_rds_client.describe_db_parameters.return_value = {
             "Parameters": [
                 {
@@ -112,18 +113,18 @@ class TestCreateTargetParameterGroup:
                     "ParameterValue": "4",
                     "ApplyMethod": "pending-reboot",
                 },
+                {"ParameterName": "work_mem", "ApplyMethod": "immediate"},
             ]
         }
         name = _create_target_parameter_group(
             mock_rds_client, "source-pg13", 13, 16, "bgd-test", is_cluster=False,
         )
         assert name == "bgd-test-pg16"
-        # Verify only max_connections was copied (incompatible param filtered)
-        call_args = mock_rds_client.modify_db_parameter_group.call_args
-        copied_params = call_args.kwargs["Parameters"]
-        param_names = [p["ParameterName"] for p in copied_params]
-        assert "max_connections" in param_names
-        assert "max_logical_replication_workers" not in param_names
+        copied = mock_rds_client.modify_db_parameter_group.call_args.kwargs["Parameters"]
+        assert {p["ParameterName"]: p["ParameterValue"] for p in copied} == {
+            "max_connections": "200",
+            "max_logical_replication_workers": "4",
+        }
 
 
 class TestCreateBlueGreenDeployment:
