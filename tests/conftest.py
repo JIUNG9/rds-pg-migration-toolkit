@@ -93,32 +93,6 @@ def mock_rds_client() -> MagicMock:
 
 
 @pytest.fixture
-def mock_rds_client_with_incompatible_params(mock_rds_client: MagicMock) -> MagicMock:
-    """RDS client with parameter group containing PG 16-incompatible parameters.
-
-    Returns:
-        MagicMock with max_logical_replication_workers in the parameter group.
-    """
-    mock_rds_client.describe_db_parameters.return_value = {
-        "Parameters": [
-            {
-                "ParameterName": "max_connections",
-                "ParameterValue": "200",
-                "ApplyMethod": "pending-reboot",
-                "Source": "user",
-            },
-            {
-                "ParameterName": "max_logical_replication_workers",
-                "ParameterValue": "4",
-                "ApplyMethod": "pending-reboot",
-                "Source": "user",
-            },
-        ]
-    }
-    return mock_rds_client
-
-
-@pytest.fixture
 def sample_aurora_cluster_config() -> dict[str, Any]:
     """Sample Aurora cluster configuration for testing.
 

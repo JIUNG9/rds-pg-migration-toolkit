@@ -199,7 +199,7 @@ done
 
 ## Lessons Learned from 49-Instance Migration
 
-1. **Always pre-flight all instances before starting any migrations.** One instance with `max_logical_replication_workers` can block the entire wave.
+1. **Always pre-flight all instances before starting any migrations.** One instance that fails a check can block the entire wave.
 
 2. **Respect the 5 concurrent deployment limit per account.** Exceeding it causes API throttling.
 

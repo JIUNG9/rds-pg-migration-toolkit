@@ -4,40 +4,7 @@ Detailed documentation of issues encountered during the migration of 49 RDS/Auro
 
 ---
 
-## 1. `max_logical_replication_workers` Removed in PG 16
-
-**Severity**: Critical (deployment blocker)
-
-**Problem**: The parameter `max_logical_replication_workers` existed in PostgreSQL 13-15 but was removed in PostgreSQL 16. If your custom RDS parameter group includes this parameter, the blue-green deployment will fail.
-
-**Symptoms**:
-- Blue-green deployment creation fails with a vague error
-- AWS Console shows: "Invalid parameter group" or "Parameter not found"
-- The error message does NOT clearly state which parameter is the issue
-
-**Detection**:
-```bash
-rds-migrate preflight --instance mydb --target-version 16
-```
-
-The preflight check cross-references your custom parameter group against the known list of removed parameters.
-
-**Fix**:
-1. Create a new parameter group based on the `postgres16` family
-2. Copy all parameters from your PG 13 group EXCEPT `max_logical_replication_workers`
-3. Use the new parameter group for the blue-green deployment
-
-```sql
--- Verify the parameter is set in your current group
--- Connect to the database and run:
-SHOW max_logical_replication_workers;
-```
-
-**Background**: In PG 16, logical replication worker management was consolidated. The `max_logical_replication_workers` was replaced by improved internal logic in `max_worker_processes` and `max_logical_replication_workers` was removed entirely.
-
----
-
-## 2. SSL Enforcement Changes
+## 1. SSL Enforcement Changes
 
 **Severity**: High (connection failures)
 
@@ -65,7 +32,7 @@ grep -r "sslmode" /path/to/your/application/config/
 
 ---
 
-## 3. Cold Cache After Switchover
+## 2. Cold Cache After Switchover
 
 **Severity**: High (performance degradation)
 
@@ -103,7 +70,7 @@ grep -r "sslmode" /path/to/your/application/config/
 
 ---
 
-## 4. VACUUM FULL Considerations
+## 3. VACUUM FULL Considerations
 
 **Severity**: High (can cause downtime)
 
@@ -140,7 +107,7 @@ grep -r "sslmode" /path/to/your/application/config/
 
 ---
 
-## 5. Aurora Cluster Endpoint DNS Propagation
+## 4. Aurora Cluster Endpoint DNS Propagation
 
 **Severity**: Medium (transient connection failures)
 
@@ -172,7 +139,7 @@ grep -r "sslmode" /path/to/your/application/config/
 
 ---
 
-## 6. Custom Parameter Group Inheritance
+## 5. Custom Parameter Group Inheritance
 
 **Severity**: Medium (configuration drift)
 
@@ -196,7 +163,7 @@ grep -r "sslmode" /path/to/your/application/config/
 
 ---
 
-## 7. Extension Version Mismatches
+## 6. Extension Version Mismatches
 
 **Severity**: Medium (may block upgrade)
 
@@ -224,7 +191,7 @@ ALTER EXTENSION postgis UPDATE;
 
 ---
 
-## 8. Sequence Values and Identity Columns
+## 7. Sequence Values and Identity Columns
 
 **Severity**: Low (rare but confusing)
 
@@ -240,7 +207,6 @@ ALTER EXTENSION postgis UPDATE;
 
 | Gotcha | Severity | Detection | Automated Fix |
 |--------|----------|-----------|---------------|
-| `max_logical_replication_workers` | Critical | `preflight` command | Yes (param removal) |
 | SSL enforcement changes | High | Manual connection test | No (app config change) |
 | Cold cache after switchover | High | Expected behavior | Partial (`maintain --analyze`) |
 | VACUUM FULL danger | High | N/A (operational) | N/A (use `maintain` instead) |

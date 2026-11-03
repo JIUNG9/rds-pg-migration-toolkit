@@ -15,7 +15,6 @@ Built from real-world experience migrating **49 RDS/Aurora PostgreSQL instances 
 PostgreSQL major version upgrades on AWS RDS/Aurora are risky:
 
 - **Downtime risk**: In-place upgrades require maintenance windows and can fail mid-way.
-- **Parameter incompatibilities**: Parameters like `max_logical_replication_workers` were removed in PG 16, causing deployment failures if not caught early.
 - **Cold cache**: After switchover, the buffer cache is empty, leading to degraded performance for minutes to hours.
 - **No built-in automation**: AWS provides blue-green deployments but no orchestration for pre-flight checks, batch migrations, or post-migration maintenance.
 - **Aurora quirks**: Aurora clusters have different blue-green deployment behavior than standalone RDS instances, requiring separate handling and retry logic.
@@ -26,9 +25,8 @@ This toolkit automates the entire lifecycle: **pre-flight validation, blue-green
 
 ## Features
 
-- **Pre-flight checks** — Validate parameter group compatibility, extension support, storage space, and blue-green deployment eligibility before touching anything.
+- **Pre-flight checks** — Validate extension support, storage space, and blue-green deployment eligibility before touching anything.
 - **Blue-green deployment automation** — Create and monitor blue-green deployments via boto3 with progress tracking.
-- **Parameter compatibility validation** — Detect removed/changed parameters (e.g., `max_logical_replication_workers` in PG 16) before they cause failures.
 - **Post-migration maintenance** — Automated `ANALYZE`, `REINDEX`, and bloat detection to restore performance after switchover.
 - **Aurora retry automation** — EventBridge + Lambda templates for automatic retry of failed blue-green deployments.
 - **Batch migration support** — Migrate multiple instances with configurable scheduling and parallelism.
@@ -164,23 +162,19 @@ reported as `skipped` with the reason and nothing is changed.
 
 These are real issues encountered during the migration of 49 instances:
 
-### 1. `max_logical_replication_workers` removed in PG 16
-
-This parameter existed in PG 13 but was removed in PG 16. If your custom parameter group includes it, the blue-green deployment will fail silently or with a cryptic error. The `preflight` command detects this automatically.
-
-### 2. SSL enforcement changes
+### 1. SSL enforcement changes
 
 PG 16 enforces stricter SSL defaults. Connections using `sslmode=prefer` may behave differently. Verify your application connection strings.
 
-### 3. Cold cache after switchover
+### 2. Cold cache after switchover
 
 After blue-green switchover, the green instance has an empty buffer cache. Expect 2-10x slower queries for the first 5-30 minutes depending on dataset size. Use `rds-migrate maintain --analyze` immediately after switchover.
 
-### 4. VACUUM FULL considerations
+### 3. VACUUM FULL considerations
 
 Do NOT run `VACUUM FULL` immediately after migration on large tables. It acquires an `ACCESS EXCLUSIVE` lock. Use regular `VACUUM` and `ANALYZE` instead — the `maintain` command handles this correctly.
 
-### 5. Aurora cluster endpoint DNS propagation
+### 4. Aurora cluster endpoint DNS propagation
 
 Aurora cluster endpoints may take up to 30 seconds to resolve to the new writer after switchover. Build retry logic into your application or use the `retry` module.
 
@@ -251,4 +245,4 @@ MIT License. See [LICENSE](LICENSE).
 
 ## Related Articles
 
-- [Zero-Downtime PostgreSQL 13 to 16: Lessons from Migrating 49 RDS Instances](https://medium.com/@June-Gu) — The real-world experience behind this toolkit, including the `max_logical_replication_workers` discovery and cold cache mitigation
+- [Zero-Downtime PostgreSQL 13 to 16: Lessons from Migrating 49 RDS Instances](https://medium.com/@June-Gu) — The real-world experience behind this toolkit, including cold cache mitigation

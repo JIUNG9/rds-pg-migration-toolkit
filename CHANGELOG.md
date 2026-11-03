@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Removed
+- The `Parameter Compatibility` pre-flight check, `REMOVED_PARAMETERS`, and the filter in `migrate.py` that dropped `max_logical_replication_workers` from the green parameter group. They were built on the claim that PostgreSQL 16 removed that parameter. It exists in PostgreSQL 16 ([docs](https://www.postgresql.org/docs/16/runtime-config-replication.html)), so the filter silently dropped a valid setting. The green parameter group now receives every user-modified parameter from the source group. `preflight` runs 4 checks instead of 5. The 0.5.0 entry below describes the removed check as shipped.
+
 ### Documentation
 - README and CONTRIBUTING said Python 3.9+ and `pyproject.toml` listed a 3.9 classifier, but `requires-python` is `>=3.10` and CI tests 3.10 to 3.13. All three now say 3.10+, and the classifiers list 3.10 to 3.13.
 - README: document the optional `[db]` extra and that only `maintain` needs `psycopg2` and a direct database connection.
